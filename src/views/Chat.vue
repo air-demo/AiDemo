@@ -75,16 +75,28 @@ const messages = ref([{ role:'assistant', content:'你好！开始和我对话�
 const input = ref('')
 const loading = ref(false)
 function scrollBottom(){ if(messagesBox.value) messagesBox.value.scrollTop = messagesBox.value.scrollHeight }
-async function send(){
-  if(!input.value) return
-  messages.value.push({ role:'user', content: input.value })
-  const userText = input.value
-  input.value=''; loading.value=true
-  await nextTick(); scrollBottom()
-  const reply = `(${currentModel.value.name}): 你说 “${userText}”`
-  messages.value.push({ role:'assistant', content: reply })
-  loading.value=false; await nextTick(); scrollBottom()
+async function send() {
+  if (!input.value) return
+  messages.value.push({ role: 'user', content: input.value })
+  const userMessage = input.value
+  input.value = ''
+  loading.value = true
+
+  try {
+    const response = await fetch('http://localhost:8080/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: userMessage })
+    })
+    const data = await response.text()  // 获取 AI 的回复
+    messages.value.push({ role: 'assistant', content: data })
+  } catch (e) {
+    messages.value.push({ role: 'assistant', content: '出错了，请稍后再试。' })
+  } finally {
+    loading.value = false
+  }
 }
+
 function newChat(){ messages.value=[] }
 function switchModel(m){ currentModel.value=m; showModelMenu.value=false }
 function loadHistory(h){ alert('加载历史 '+h.title) }
