@@ -36,9 +36,12 @@
         <img class="top-avatar" src="https://i.pravatar.cc/60?img=68" alt="me" @click="router.push('/profile')" />
       </header>
 
-      <div class="messages" ref="messagesBox">
-        <div v-for="(m,i) in messages" :key="i" :class="['msg', m.role]">
-          <div class="avatar">{{ m.role==='user'?'👤':'🤖' }}</div>
+      
+      <!-- AI thinking indicator -->
+      <div v-if="loading" class="thinking">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="txt">AI 正在思考…</span>
+      </div>
           <div class="bubble">{{ m.content }}</div>
         </div>
       </div>
@@ -75,28 +78,16 @@ const messages = ref([{ role:'assistant', content:'你好！开始和我对话�
 const input = ref('')
 const loading = ref(false)
 function scrollBottom(){ if(messagesBox.value) messagesBox.value.scrollTop = messagesBox.value.scrollHeight }
-async function send() {
-  if (!input.value) return
-  messages.value.push({ role: 'user', content: input.value })
-  const userMessage = input.value
-  input.value = ''
-  loading.value = true
-
-  try {
-    const response = await fetch('http://localhost:8080/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: userMessage })
-    })
-    const data = await response.text()  // 获取 AI 的回复
-    messages.value.push({ role: 'assistant', content: data })
-  } catch (e) {
-    messages.value.push({ role: 'assistant', content: '出错了，请稍后再试。' })
-  } finally {
-    loading.value = false
-  }
+async function send(){
+  if(!input.value) return
+  messages.value.push({ role:'user', content: input.value })
+  const userText = input.value
+  input.value=''; loading.value=true
+  await nextTick(); scrollBottom()
+  const reply = `(${currentModel.value.name}): 你说 “${userText}”`
+  messages.value.push({ role:'assistant', content: reply })
+  loading.value=false; await nextTick(); scrollBottom()
 }
-
 function newChat(){ messages.value=[] }
 function switchModel(m){ currentModel.value=m; showModelMenu.value=false }
 function loadHistory(h){ alert('加载历史 '+h.title) }
@@ -140,10 +131,14 @@ html,body{margin:0;height:100%;font-family:"Inter",system-ui,sans-serif}
 
 .inputbar{display:flex;justify-content:center;padding:12px;background:var(--bg);border-top:1px solid #e2e8f0}
 .wrap{display:flex;align-items:center;width:100%;max-width:720px}
-.input{flex:1;padding:10px 14px;border:1px solid #cbd5e1;border-radius:999px;font-size:15px;outline:none;width:100%}
+.input{flex:1;padding:10px 14px;border:1px solid #cbd5e1;border-radius:999px;font-size:15px;outline:none;width:100%;color:#111;background:#fff}
 .input:focus{border-color:var(--blue);box-shadow:0 0 0 2px rgba(37,99,235,.2)}
 .voice{margin-left:10px;border:none;background:none;font-size:22px;cursor:pointer}
 .send{margin-left:10px;border:none;border-radius:999px;background:var(--blue);color:#fff;padding:0 24px;font-weight:600;cursor:pointer}
 .send:disabled{opacity:.6;cursor:not-allowed}
 @media(max-width:768px){.sidebar{display:none}}
+.thinking{display:flex;align-items:center;gap:6px;font-size:14px;color:#64748b;margin:4px 20px 8px}
+.dot{width:6px;height:6px;background:#64748b;border-radius:50%;animation:bounce 1s infinite}
+.dot:nth-child(2){animation-delay:.2s}.dot:nth-child(3){animation-delay:.4s}
+@keyframes bounce{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
 </style>
