@@ -1,5 +1,4 @@
 <template>
-  <!-- Chat layout: collapsible sidebar + chat + avatar at top‑right -->
   <div class="container">
     <!-- Sidebar -->
     <aside :class="['sidebar', { collapsed }]">
@@ -13,12 +12,18 @@
 
         <h3 class="sb-title">已训练模型</h3>
         <ul class="list">
-          <li v-for="m in models" :key="m.id" :class="{ active: m.id === currentModel.id }" @click="switchModel(m)">{{ m.name }}</li>
+          <li v-for="m in models" :key="m.id"
+              :class="{ active: m.id === currentModel.id }"
+              @click="switchModel(m)">
+            {{ m.name }}
+          </li>
         </ul>
 
         <h3 class="sb-title">历史记录</h3>
         <ul class="list">
-          <li v-for="h in history" :key="h.id" @click="loadHistory(h)">{{ h.title }}</li>
+          <li v-for="h in history" :key="h.id" @click="loadHistory(h)">
+            {{ h.title }}
+          </li>
         </ul>
       </nav>
     </aside>
@@ -29,30 +34,90 @@
         <div class="model-selector" @click="showModelMenu = !showModelMenu">
           当前模型：{{ currentModel.name }} ▼
           <ul v-if="showModelMenu" class="model-menu">
-            <li v-for="m in models" :key="m.id" @click.stop="switchModel(m)">{{ m.name }}</li>
+            <li v-for="m in models" :key="m.id" @click.stop="switchModel(m)">
+              {{ m.name }}
+            </li>
           </ul>
         </div>
-        <!-- Avatar button at right -->
-        <img class="top-avatar" src="https://i.pravatar.cc/60?img=68" alt="me" @click="router.push('/profile')" />
+        <img class="top-avatar" src="https://i.pravatar.cc/60?img=68"
+             alt="me" @click="router.push('/profile')" />
       </header>
 
-      
-      <!-- AI thinking indicator -->
-      <div v-if="loading" class="thinking">
-        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-        <span class="txt">AI 正在思考…</span>
-      </div>
-          <div class="bubble">{{ m.content }}</div>
-        </div>
+     <div v-if="messages.length === 0 && !loading" class="empty">
+    <h1 class="empty-title">有什么我能帮你的吗？</h1>
+  </div>
+
+  <!-- 消息区 -->
+  <div class="messages" v-else ref="messagesBox">
+    <div v-for="(m,i) in messages" :key="i" :class="['msg', m.role]">
+      <div class="avatar">{{ m.role==='user' ? '👤' : '🤖' }}</div>
+      <div class="bubble">{{ m.content }}</div>
+    </div>
+  </div>
+
+  <div v-if="loading" class="thinking">
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <span class="txt">AI 正在思考…</span>
+  </div>
+      <form class="composer" @submit.prevent="send">
+  <div class="composer-box">
+    <!-- 文本输入（多行），保留原来的 input 绑定变量 -->
+    <textarea
+      v-model.trim="input"
+      class="composer-input"
+      rows="3"
+      placeholder="发消息或输入 / 选择技能"
+    ></textarea>
+
+    <!-- 底部工具行 -->
+    <div class="composer-footer">
+      <!-- 左侧：附件 -->
+      <button type="button" class="icon-btn-circle" title="附件（占位）">
+        <svg viewBox="0 0 24 24" class="icon">
+          <path d="M21 12.5l-8.5 8.5a6 6 0 0 1-8.5-8.5L12 4.5a4 4 0 1 1 5.7 5.6L9.4 18.4a2 2 0 1 1-2.8-2.8L14 8.3"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+
+      <!-- 中部：标签 Chips（示例两枚，可按需增删） -->
+      <div class="chips">
+        <span class="chip chip-primary">极速</span>
+        <span class="chip">思考</span>
       </div>
 
-      <form class="inputbar" @submit.prevent="send">
-        <div class="wrap">
-          <input v-model.trim="input" class="input" type="text" placeholder="输入消息…" required />
-          <button type="button" class="voice" @click="voiceChat">🎤</button>
-          <button class="send" type="submit" :disabled="loading">{{ loading ? '…' : '发送' }}</button>
-        </div>
-      </form>
+      <!-- 右侧：剪刀、麦克风、发送 -->
+      <div class="tools-right">
+        <button type="button" class="icon-btn-ghost" title="剪裁（占位）">
+          <svg viewBox="0 0 24 24" class="icon">
+            <path d="M14 4l-4 8 4 8M5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm14 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"
+                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+
+        <button
+  type="button"
+  class="icon-btn-ghost"
+  :class="{ recording }"
+  @click="toggleRec"
+  title="语音输入"
+>
+  <svg viewBox="0 0 24 24" class="icon">
+    <path d="M12 14a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0M12 16v4m-3 0h6"
+          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+</button>
+
+        <!-- 发送：圆形按钮，提交表单 -->
+        <button type="submit" class="send-circle" :disabled="loading" title="发送">
+          <svg viewBox="0 0 24 24" class="icon">
+            <path d="M5 12l14-7-6 14-2-5-6-2z" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</form>
+
     </main>
   </div>
 </template>
@@ -60,47 +125,140 @@
 <script setup>
 import { ref, reactive, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
+
 const router = useRouter()
+
 const collapsed = ref(false)
 const showModelMenu = ref(false)
+
 const models = reactive([
-  { id: 'gpt4o', name: 'GPT‑4o‑mini' },
+  { id: 'gpt4o', name: 'GPT-4o-mini' },
   { id: 'wizard', name: '巫师助手' },
-  { id: 'soc', name: '苏格拉底辩手' }
+  { id: 'soc',   name: '苏格拉底辩手' }
 ])
+
 const history = reactive([
   { id: 1, title: '和哈利聊天' },
   { id: 2, title: '逻辑辩论' }
 ])
+
 const currentModel = ref(models[0])
+
 const messagesBox = ref(null)
-const messages = ref([{ role:'assistant', content:'你好！开始和我对话吧～' }])
+const messages = ref([])
+
+
 const input = ref('')
 const loading = ref(false)
-function scrollBottom(){ if(messagesBox.value) messagesBox.value.scrollTop = messagesBox.value.scrollHeight }
-async function send(){
-  if(!input.value) return
-  messages.value.push({ role:'user', content: input.value })
-  const userText = input.value
-  input.value=''; loading.value=true
-  await nextTick(); scrollBottom()
-  const reply = `(${currentModel.value.name}): 你说 “${userText}”`
-  messages.value.push({ role:'assistant', content: reply })
-  loading.value=false; await nextTick(); scrollBottom()
-}
-function newChat(){ messages.value=[] }
-function switchModel(m){ currentModel.value=m; showModelMenu.value=false }
-function loadHistory(h){ alert('加载历史 '+h.title) }
-function voiceChat(){ alert('语音功能待实现') }
-</script>
 
+function scrollBottom () {
+  if (messagesBox.value) {
+    messagesBox.value.scrollTop = messagesBox.value.scrollHeight
+  }
+}
+
+async function send () {
+  if (!input.value) return
+  messages.value.push({ role: 'user', content: input.value })
+  const userText = input.value
+  input.value = ''
+  loading.value = true
+  await nextTick(); scrollBottom()
+
+  // 打开 SSE
+  const es = new EventSource(`http://localhost:8080/api/chat/stream?msg=${encodeURIComponent(userText)}`)
+  let aiBuf = ''
+  es.onmessage = e => {
+    aiBuf += e.data
+    // 如果已存在 AI 气泡则更新，否则新增
+    if (messages.value[messages.value.length - 1].role === 'assistant') {
+      messages.value[messages.value.length - 1].content = aiBuf
+    } else {
+      messages.value.push({ role: 'assistant', content: aiBuf })
+    }
+    nextTick().then(scrollBottom)
+  }
+  es.onerror = () => { es.close(); loading.value = false }
+  es.onopen   = () => console.log('SSE connected')
+  es.addEventListener('end', () => { es.close(); loading.value = false })
+}
+
+
+function newChat () { messages.value = [] }
+function switchModel (m) { currentModel.value = m; showModelMenu.value = false }
+function loadHistory (h) { alert('加载历史 ' + h.title) }
+const recording = ref(false)
+let mediaRec = null
+let audioChunks = []
+
+async function toggleRec () {
+  if (recording.value) {
+    // 停止录制
+    mediaRec.stop()
+    recording.value = false
+    return
+  }
+  // 请求麦克风权限
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    mediaRec = new MediaRecorder(stream)
+    audioChunks = []
+    mediaRec.ondataavailable = e => audioChunks.push(e.data)
+    mediaRec.onstop = async () => {
+      const blob = new Blob(audioChunks, { type: mediaRec.mimeType })
+      await sendAudio(blob)          // 调用后端
+      stream.getTracks().forEach(t => t.stop()) // 释放麦克风
+    }
+    mediaRec.start()
+    recording.value = true
+  } catch (err) {
+    console.error('麦克风权限失败', err)
+  }
+}
+
+/* 把录音发送到后端 ASR，返回文本后放入输入框并自动发送 */
+async function sendAudio (blob) {
+  loading.value = true
+  try {
+    const form = new FormData()
+    form.append('file', blob, 'record.webm')
+
+    const resp = await fetch('http://localhost:8080/api/asr', {
+      method: 'POST',
+      body: form
+    })
+    const text = await resp.text()          // 后端返回纯文本
+
+    // 把识别出的文字填入 composer，并聚焦等待用户确认
+    input.value = text
+    await nextTick(() => {
+      document.querySelector('.composer-input')?.focus()
+    })
+  } catch (e) {
+    console.error(e)
+    // 识别失败时可提示
+    messages.value.push({ role: 'assistant', content: '语音识别失败，请重试。' })
+  } finally {
+    loading.value = false
+  }
+}
+</script>
 <style>
-:root{ --blue:#2563eb; --bg:#f8fafc; --sidebar:#0f172a; --sidebar-text:#cbd5e1; --card:#1e293b; }
+:root{
+  --blue:#2563eb;
+  --bg:#f8fafc;
+  --sidebar:#0f172a;
+  --sidebar-text:#cbd5e1;
+  --card:#1e293b;
+}
 html,body{margin:0;height:100%;font-family:"Inter",system-ui,sans-serif}
 .container{display:grid;grid-template-columns:auto 1fr;height:100vh;overflow:hidden}
 
 /* Sidebar */
-.sidebar{background:var(--sidebar);color:var(--sidebar-text);display:flex;flex-direction:column;width:240px;transition:width .2s}
+.sidebar{
+  background:var(--sidebar);color:var(--sidebar-text);
+  display:flex;flex-direction:column;width:240px;transition:width .2s
+}
 .sidebar.collapsed{width:60px}
 .sb-head{display:flex;align-items:center;gap:12px;padding:14px}
 .toggle{font-size:20px;background:none;border:none;color:#fff;cursor:pointer}
@@ -113,32 +271,173 @@ html,body{margin:0;height:100%;font-family:"Inter",system-ui,sans-serif}
 .list li.active{background:var(--blue)}
 .nav-btn{width:100%;padding:8px 0;border:none;border-radius:8px;background:var(--blue);color:#fff;font-weight:600;cursor:pointer;margin-top:8px}
 
-/* Chat */
-.chat{display:flex;flex-direction:column;background:var(--bg)}
-.chat-head{display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid #e2e8f0;background:#fff;font-size:14px;position:relative}
+
+/* ① chat 根容器：加 min-height:0 */
+.chat{
+  display:flex;
+  flex-direction:column;
+  background:var(--bg);
+  /* 新增 ↓ */
+  min-height:0;
+}
+
+
+.chat-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 18px;border-bottom:1px solid #e2e8f0;background:#fff;font-size:14px;position:relative
+}
 .model-selector{cursor:pointer;user-select:none}
-.model-menu{position:absolute;top:40px;left:18px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 10px rgba(0,0,0,.08);list-style:none;padding:6px 0;margin:0;width:160px;z-index:10}
+.model-menu{
+  position:absolute;top:40px;left:18px;background:#fff;border:1px solid #e2e8f0;
+  border-radius:8px;box-shadow:0 4px 10px rgba(0,0,0,.08);
+  list-style:none;padding:6px 0;margin:0;width:160px;z-index:10
+}
 .model-menu li{padding:8px 14px;cursor:pointer;font-size:14px}
 .model-menu li:hover{background:#f1f5f9}
 .top-avatar{width:40px;height:40px;border-radius:50%;cursor:pointer}
 
-.messages{flex:1;overflow-y:auto;padding:24px 20px;display:flex;flex-direction:column;gap:16px}
-.msg{display:flex;align-items:flex-start;gap:10px}.msg.user{flex-direction:row-reverse}
+/* ② messages 滚动区：改 flex & 加 min-height:0 */
+.messages{
+  flex:1 1 0;          /* 原来是 flex:1; → 改成可缩放 */
+  min-height:0;        /* 新增，防止撑破父容器 */
+  overflow-y:auto;
+  padding:24px 20px;
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+}
+.msg{display:flex;align-items:flex-start;gap:10px}
+.msg.user{flex-direction:row-reverse}
 .avatar{font-size:22px;width:32px;height:32px;display:flex;align-items:center;justify-content:center}
-.bubble{max-width:70%;padding:14px 18px;border-radius:20px;font-size:15px;line-height:1.5;background:rgba(30,41,59,.9);color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.15)}
-.msg.user .bubble{background:#3b82f6;color:#fff;border-bottom-right-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,.12)}
-.msg.assistant .bubble{background:rgba(30,41,59,.9);border-bottom-left-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,.12)}
+.bubble{
+  max-width:70%;padding:14px 18px;border-radius:20px;font-size:15px;line-height:1.5;
+  background:rgba(30,41,59,.9);color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.15)
+}
+.msg.user .bubble{
+  background:#3b82f6;color:#fff;border-bottom-right-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,.12)
+}
+.msg.assistant .bubble{
+  background:rgba(30,41,59,.9);border-bottom-left-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,.12)
+}
 
+/* Input bar */
 .inputbar{display:flex;justify-content:center;padding:12px;background:var(--bg);border-top:1px solid #e2e8f0}
 .wrap{display:flex;align-items:center;width:100%;max-width:720px}
-.input{flex:1;padding:10px 14px;border:1px solid #cbd5e1;border-radius:999px;font-size:15px;outline:none;width:100%;color:#111;background:#fff}
+.input{
+  flex:1;padding:10px 14px;border:1px solid #cbd5e1;border-radius:999px;
+  font-size:15px;outline:none;width:100%;color:#111;background:#fff
+}
 .input:focus{border-color:var(--blue);box-shadow:0 0 0 2px rgba(37,99,235,.2)}
 .voice{margin-left:10px;border:none;background:none;font-size:22px;cursor:pointer}
-.send{margin-left:10px;border:none;border-radius:999px;background:var(--blue);color:#fff;padding:0 24px;font-weight:600;cursor:pointer}
+.send{
+  margin-left:10px;border:none;border-radius:999px;background:var(--blue);
+  color:#fff;padding:0 24px;font-weight:600;cursor:pointer
+}
 .send:disabled{opacity:.6;cursor:not-allowed}
+
 @media(max-width:768px){.sidebar{display:none}}
-.thinking{display:flex;align-items:center;gap:6px;font-size:14px;color:#64748b;margin:4px 20px 8px}
-.dot{width:6px;height:6px;background:#64748b;border-radius:50%;animation:bounce 1s infinite}
-.dot:nth-child(2){animation-delay:.2s}.dot:nth-child(3){animation-delay:.4s}
-@keyframes bounce{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
+
+/* Thinking indicator */
+.thinking{display:flex;align-items:center;gap:6px;font-size:14px;color:#64748b;padding:8px 20px}
+.dot{
+  width:6px;height:6px;background:#64748b;border-radius:50%;
+  animation:bounce 1s infinite
+}
+.dot:nth-child(2){animation-delay:.2s}
+.dot:nth-child(3){animation-delay:.4s}
+@keyframes bounce{
+  0%,80%,100%{transform:scale(0)}
+  40%{transform:scale(1)}
+}
+
+
+.empty{
+  display:flex; align-items:center; justify-content:center;
+  padding:48px 20px 12px;
+}
+.empty-title{
+  font-size:clamp(22px, 4vw, 36px);
+  font-weight:800; color:#0f172a; letter-spacing:.5px;
+}
+
+/* 圆形图标按钮（语音） */
+.icon-btn{
+  flex:0 0 auto;
+  width:36px; height:36px; border-radius:999px;
+  border:1px solid #e2e8f0; background:#fff; color:#334155;
+  display:inline-flex; align-items:center; justify-content:center;
+  cursor:pointer; transition:all .15s ease;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.icon-btn:hover{ background:#f8fafc }
+.icon-btn:active{ transform:scale(.96) }
+.icon{ width:18px; height:18px }
+
+/* 输入框略增高，更像图中的质感 */
+.input{
+  height:42px; /* 可按需调整 40~44 */
+}
+
+
+.composer{ display:flex; justify-content:center; padding:16px 20px; background:var(--bg); }
+.composer-box{
+  width:100%; max-width:900px; background:#fff;
+  border:1px solid #eef2f7; border-radius:22px;
+  box-shadow:0 12px 40px rgba(15,23,42,.08);
+  padding:14px 16px 10px;
+}
+
+/* 多行输入 */
+.composer-input{
+  width:100%; border:none; outline:none; resize:none;
+  font-size:16px; line-height:1.5; color:#0f172a; background:transparent;
+  padding:6px 6px 0 6px;
+}
+.composer-input::placeholder{ color:#94a3b8; }
+
+/* 底部工具行 */
+.composer-footer{
+  margin-top:8px; display:flex; align-items:center; justify-content:space-between;
+}
+
+/* 左侧圆形按钮（附件） */
+.icon-btn-circle{
+  width:40px; height:40px; border-radius:999px;
+  border:1px solid #e2e8f0; background:#fff; color:#334155;
+  display:inline-flex; align-items:center; justify-content:center;
+  cursor:pointer; transition:all .15s ease; box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.icon-btn-circle:hover{ background:#f8fafc }
+.icon{ width:18px; height:18px }
+
+/* 中部 chips */
+.chips{ display:flex; align-items:center; gap:8px; margin-left:10px; flex:1; }
+.chip{
+  display:inline-flex; align-items:center; padding:6px 10px; border-radius:999px;
+  background:#f1f5f9; color:#334155; font-size:14px;
+}
+.chip-primary{ background:#e7f0ff; color:#1d4ed8; font-weight:600; }
+
+/* 右侧图标区 */
+.tools-right{ display:flex; align-items:center; gap:6px; }
+.icon-btn-ghost{
+  width:34px; height:34px; border-radius:999px; border:none; background:transparent; color:#334155;
+  display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
+}
+.icon-btn-ghost:hover{ background:#f8fafc }
+
+/* 发送按钮：圆形、品牌色 */
+.send-circle{
+  width:40px; height:40px; border:none; border-radius:999px; cursor:pointer;
+  background:#2563eb; color:#fff; display:inline-flex; align-items:center; justify-content:center;
+  box-shadow:0 6px 18px rgba(37,99,235,.35); transition:transform .12s ease, opacity .12s ease;
+}
+.send-circle:disabled{ opacity:.6; cursor:not-allowed; box-shadow:none; }
+.send-circle:active{ transform:scale(.96); }
+
+
+.icon-btn-ghost.recording{
+  background:#fee2e2;            /* 轻红底 */
+  color:#b91c1c;                 /* 深红图标 */
+}
 </style>
