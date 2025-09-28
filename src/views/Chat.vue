@@ -167,7 +167,7 @@ async function send () {
   messages.value.push({ role: 'user', content: input.value })
   const userText = input.value
   input.value = ''
-  loading.value = true
+  loadingChat.value = true
   await nextTick(); scrollBottom()
 
   // 打开 SSE
