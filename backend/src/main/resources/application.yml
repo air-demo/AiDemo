@@ -1,0 +1,20 @@
+openai:
+  base-url: "https://openai.qiniu.com/v1"
+  api-key: "sk-473cdbb1eedfe794ea0c9627c4bc8821df9a215410bf8dd52b90a77f3c3ddce2"
+  model: "deepseek-v3"
+server:
+  port: 8080
+asr:
+  qiniu:
+    token: "sk-473cdbb1eedfe794ea0c9627c4bc8821df9a215410bf8dd52b90a77f3c3ddce2"                  # 你的鉴权 token（建议从环境变量读取）
+    wsUrl: "wss://openai.qiniu.com/v1/voice/asr"
+    segDurationMs: 300                  # 分段时长，毫秒
+    sampleRate: 16000
+    channels: 1
+    bits: 16
+    codec: "raw"                        # 与 Python 示例一致
+    modelName: "asr"                    # 按示例
+    enablePunc: true
+    connectTimeoutMs: 8000
+    readTimeoutMs: 15000
+    overallTimeoutMs: 25000             # 整体一次识别的超时时间
