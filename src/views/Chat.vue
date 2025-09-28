@@ -43,7 +43,7 @@
              alt="me" @click="router.push('/profile')" />
       </header>
 
-     <div v-if="messages.length === 0 && !loading" class="empty">
+     <div v-if="messages.length === 0 && !loadingChat" class="empty">
     <h1 class="empty-title">有什么我能帮你的吗？</h1>
   </div>
 
@@ -55,7 +55,7 @@
     </div>
   </div>
 
-  <div v-if="loading" class="thinking">
+  <div v-if="loadingChat" class="thinking">
     <span class="dot"></span><span class="dot"></span><span class="dot"></span>
     <span class="txt">AI 正在思考…</span>
   </div>
@@ -108,7 +108,7 @@
 </button>
 
         <!-- 发送：圆形按钮，提交表单 -->
-        <button type="submit" class="send-circle" :disabled="loading" title="发送">
+        <button type="submit" class="send-circle" :disabled="loadingChat || loadingAsr" title="发送">
           <svg viewBox="0 0 24 24" class="icon">
             <path d="M5 12l14-7-6 14-2-5-6-2z" fill="currentColor"/>
           </svg>
@@ -149,7 +149,12 @@ const messages = ref([])
 
 
 const input = ref('')
-const loading = ref(false)
+const loadingChat = ref(false)   // 只管 SSE 聊天的 loading
+const loadingAsr  = ref(false)   // 只管 ASR 语音的 loading
+
+// —— 语音请求并发控制（防旧结果覆盖新结果）——
+let currentRunId = 0
+let currentAbort = null
 
 function scrollBottom () {
   if (messagesBox.value) {
@@ -178,9 +183,8 @@ async function send () {
     }
     nextTick().then(scrollBottom)
   }
-  es.onerror = () => { es.close(); loading.value = false }
-  es.onopen   = () => console.log('SSE connected')
-  es.addEventListener('end', () => { es.close(); loading.value = false })
+  es.onerror = () => { es.close(); loadingChat.value = false }
+es.addEventListener('end', () => { es.close(); loadingChat.value = false })
 }
 
 
@@ -193,7 +197,6 @@ let audioChunks = []
 
 async function toggleRec () {
   if (recording.value) {
-    // 停止录制
     mediaRec.stop()
     recording.value = false
     return
@@ -216,31 +219,155 @@ async function toggleRec () {
   }
 }
 
-/* 把录音发送到后端 ASR，返回文本后放入输入框并自动发送 */
-async function sendAudio (blob) {
-  loading.value = true
-  try {
-    const form = new FormData()
-    form.append('file', blob, 'record.webm')
-
-    const resp = await fetch('http://localhost:8080/api/asr', {
-      method: 'POST',
-      body: form
-    })
-    const text = await resp.text()          // 后端返回纯文本
-
-    // 把识别出的文字填入 composer，并聚焦等待用户确认
-    input.value = text
-    await nextTick(() => {
-      document.querySelector('.composer-input')?.focus()
-    })
-  } catch (e) {
-    console.error(e)
-    // 识别失败时可提示
-    messages.value.push({ role: 'assistant', content: '语音识别失败，请重试。' })
-  } finally {
-    loading.value = false
+async function sendAudio(blob) {
+  // 取消上一轮（如果有）
+  if (currentAbort && typeof currentAbort.abort === 'function') {
+    try { currentAbort.abort() } catch (e) {}
   }
+
+  // 新建本轮的 AbortController（老浏览器可能没有）
+  const controller = (typeof AbortController !== 'undefined')
+    ? new AbortController()
+    : null
+  currentAbort = controller
+
+  const runId = ++currentRunId
+  loadingAsr.value = true
+
+  try {
+    const wavBlob = await webmOrOggToWav16k(blob)
+    const form = new FormData()
+    form.append('file', wavBlob, 'record.wav')
+
+    const opts = { method: 'POST', body: form }
+    if (controller) opts.signal = controller.signal   // 只有有 controller 时才传递
+
+    const resp = await fetch('http://localhost:8080/api/asr', opts)       // 用 Vite 代理同源
+    if (!resp.ok) {
+      const errText = await safeText(resp)
+      throw new Error(`ASR 请求失败：${resp.status} ${resp.statusText} - ${errText}`)
+    }
+
+    const text = (await resp.text() || '').trim()
+
+    // 只在仍是“当前批次”时写入，避免旧请求覆盖
+    if (runId === currentRunId) {
+      input.value = text
+      await nextTick(() => document.querySelector('.composer-input')?.focus())
+    }
+  } catch (e) {
+    if (!(e && e.name === 'AbortError')) {
+      console.error(e)
+      alert(e?.message || '语音识别失败，请稍后重试')
+    }
+  } finally {
+    if (runId === currentRunId) loadingAsr.value = false
+    if (currentAbort === controller) currentAbort = null // 清理本轮 controller
+  }
+}
+
+
+
+// 兼容 decodeAudioData 在旧 Safari 的回调形式
+function decodeAudioCompat(audioCtx, arrayBuf) {
+  return new Promise((resolve, reject) => {
+    // 新标准：返回 Promise
+    const maybePromise = audioCtx.decodeAudioData(arrayBuf, resolve, reject)
+    if (maybePromise && typeof maybePromise.then === 'function') {
+      maybePromise.then(resolve).catch(reject)
+    }
+  })
+}
+
+// WebM/Ogg(通常是 Opus) → 16k/mono/16bit WAV
+async function webmOrOggToWav16k(blob) {
+  const arrayBuf = await blob.arrayBuffer()
+
+  // 用 Online AudioContext 解码（兼容最好）
+  const online = new (window.AudioContext || window.webkitAudioContext)()
+  let decoded
+  try {
+    decoded = await decodeAudioCompat(online, arrayBuf)
+  } finally {
+    // iOS 会限制并发上下文数量，尽快关闭
+    await online.close()
+  }
+
+  // 先在原采样率下把多声道合成单声道
+  const srcRate = decoded.sampleRate
+  const monoBuf = mergeToMono(decoded) // 仍是 Float32、srcRate
+
+  // 用 OfflineAudioContext 进行重采样到 16k/mono
+  const targetRate = 16000
+  const frameCount = Math.ceil(monoBuf.duration * targetRate)
+  const off = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, frameCount, targetRate)
+
+  const src = off.createBufferSource()
+  src.buffer = monoBuf
+  src.connect(off.destination)
+  src.start(0)
+
+  const rendered = await off.startRendering()
+  // 离线上下文不需要 close()
+
+  // Float32 PCM → Int16，并封装 WAV
+  const pcm = rendered.getChannelData(0)
+  const i16 = floatToInt16(pcm)
+  const wav = pcmToWav(i16, targetRate, 1)
+  return new Blob([wav], { type: 'audio/wav' })
+}
+
+function mergeToMono(decoded) {
+  const { numberOfChannels, length, sampleRate } = decoded
+  if (numberOfChannels === 1) return decoded
+
+  const out = new AudioBuffer({ numberOfChannels: 1, length, sampleRate })
+  const ch0 = out.getChannelData(0)
+  const a0 = decoded.getChannelData(0)
+  const a1 = decoded.getChannelData(1)
+  const n = Math.min(a0.length, a1.length)
+  for (let i = 0; i < n; i++) {
+    const s0 = a0[i] || 0
+    const s1 = a1[i] || 0
+    ch0[i] = (s0 + s1) / 2
+  }
+  return out
+}
+
+function floatToInt16(float32) {
+  const i16 = new Int16Array(float32.length)
+  for (let i = 0; i < float32.length; i++) {
+    let s = float32[i]
+    if (!Number.isFinite(s)) s = 0
+    s = Math.max(-1, Math.min(1, s))
+    i16[i] = (s * 0x7fff) | 0
+  }
+  return i16
+}
+
+function pcmToWav(int16, sampleRate, channels) {
+  const blockAlign = channels * 2
+  const byteRate = sampleRate * blockAlign
+  const dataSize = int16.length * 2
+  const buffer = new ArrayBuffer(44 + dataSize)
+  const view = new DataView(buffer)
+  let o = 0
+  const writeStr = (s) => { for (let i = 0; i < s.length; i++) view.setUint8(o++, s.charCodeAt(i)) }
+  const writeU32 = (v) => { view.setUint32(o, v, true); o += 4 }
+  const writeU16 = (v) => { view.setUint16(o, v, true); o += 2 }
+
+  writeStr('RIFF'); writeU32(36 + dataSize); writeStr('WAVE')
+  writeStr('fmt '); writeU32(16); writeU16(1) // PCM
+  writeU16(channels); writeU32(sampleRate); writeU32(byteRate)
+  writeU16(blockAlign); writeU16(16) // bits
+  writeStr('data'); writeU32(dataSize)
+  new Int16Array(buffer, 44).set(int16)
+  return buffer
+}
+
+// 读取 text，但避免非 UTF-8/无 body 的报错
+async function safeText(resp) {
+  try { return await resp.text() } catch { return '' }
 }
 </script>
 <style>
